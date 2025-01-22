@@ -44,6 +44,7 @@ abstract class CollectATsFromPatches : BaseTask() {
     abstract val header: Property<String>
 
     @get:InputDirectory
+    @get:Optional
     abstract val patchDir: DirectoryProperty
 
     @get:InputDirectory
@@ -61,8 +62,13 @@ abstract class CollectATsFromPatches : BaseTask() {
     @TaskAction
     fun run() {
         outputFile.path.deleteForcefully()
-        val patches = patchDir.path.listDirectoryEntries("*.patch") +
-            (extraPatchDir.pathOrNull?.listDirectoryEntries("*.patch") ?: emptyList())
+        val patches = mutableListOf<Path>()
+        patchDir.orNull?.let {
+            patches += it.path.listDirectoryEntries("*.patch")
+        }
+        extraPatchDir.orNull?.let {
+            patches += it.path.listDirectoryEntries("*.patch")
+        }
         outputFile.path.writeLines(readAts(patches))
     }
 

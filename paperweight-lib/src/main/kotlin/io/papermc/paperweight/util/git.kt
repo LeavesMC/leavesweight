@@ -46,8 +46,31 @@ class Git(private val repo: Path, private val env: Map<String, String> = emptyMa
 
     fun withEnv(env: Map<String, String>): Git = Git(repo, env)
 
+    private fun cmd(args: Array<out String>) =
+        arrayOf("git", "-c", "commit.gpgsign=false", "-c", "core.safecrlf=false", *args)
+
+    fun exec(providers: ProviderFactory, vararg args: String): Provider<String> {
+        val cmd = cmd(args)
+        val exec = providers.exec {
+            workingDir = repo.toFile()
+            commandLine = cmd.toMutableList()
+            environment.putAll(env)
+        }
+        return exec.standardOutput.asText.zip(exec.result) { output, result ->
+            if (result.exitValue != 0) {
+                throw PaperweightException("Failed to execute command: '${cmd.joinToString(separator = " ")}'; Exit code ${result.exitValue}")
+            }
+            return@zip output
+        }
+    }
+
+    fun disableAutoGpgSigningInRepo() {
+        invoke("config", "commit.gpgSign", "false").executeSilently(silenceErr = true)
+        invoke("config", "tag.gpgSign", "false").executeSilently(silenceErr = true)
+    }
+
     operator fun invoke(vararg args: String): Command {
-        val cmd = arrayOf("git", "-c", "commit.gpgsign=false", "-c", "core.safecrlf=false", *args)
+        val cmd = cmd(args)
         return try {
             val builder = ProcessBuilder(*cmd).directory(repo)
             builder.environment().putAll(env)
@@ -91,6 +114,15 @@ class Git(private val repo: Path, private val env: Map<String, String> = emptyMa
             }
         }
 
+        fun checkForGit(providers: ProviderFactory) {
+            val result = providers.exec {
+                commandLine("git", "--version")
+            }.result.get()
+            if (result.exitValue != 0) {
+                missingGit()
+            }
+        }
+
         fun checkForGit() {
             try {
                 val proc = ProcessBuilder("git", "--version").redirectErrorStream(true).start()
@@ -98,9 +130,24 @@ class Git(private val repo: Path, private val env: Map<String, String> = emptyMa
                 if (proc.waitFor() == 0) {
                     return
                 }
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+            }
+            missingGit()
+        }
 
+        private fun missingGit(): Nothing {
             throw PaperweightException("You must have git installed and available on your PATH in order to use paperweight.")
+        }
+
+        fun checkForGitRepo(directory: Path): Boolean {
+            try {
+                val proc = ProcessBuilder("git", "status").redirectErrorStream(true).directory(directory).start()
+                proc.inputStream.copyTo(UselessOutputStream)
+                if (proc.waitFor() == 0) {
+                    return true
+                }
+            } catch (_: Exception) {}
+            return false
         }
     }
 }
@@ -111,7 +158,7 @@ class Command(private val processBuilder: ProcessBuilder, private val command: S
     private var errStream: OutputStream = UselessOutputStream
 
     fun run(): Int {
-        if (System.getProperty(PAPERWEIGHT_DEBUG, "false") == "true") {
+        if (paperweightDebug()) {
             // Override all settings for debug
             setup(DelegatingOutputStream(outStream, System.out), DelegatingOutputStream(errStream, System.err))
             println()
@@ -212,4 +259,25 @@ class Command(private val processBuilder: ProcessBuilder, private val command: S
         }
         Result(run(), String(out.toByteArray()))
     }
+}
+
+fun checkoutRepoFromUpstream(
+    git: Git,
+    upstream: Path,
+    upstreamBranch: String,
+    upstreamName: String = "upstream",
+    branchName: String = "master",
+    ref: Boolean = false,
+) {
+    git("init", "--quiet").executeSilently(silenceErr = true)
+    git.disableAutoGpgSigningInRepo()
+    git("remote", "remove", upstreamName).runSilently(silenceErr = true)
+    git("remote", "add", upstreamName, upstream.toUri().toString()).executeSilently(silenceErr = true)
+    git("fetch", upstreamName, "--prune", "--prune-tags", "--force").executeSilently(silenceErr = true)
+    if (git("checkout", branchName).runSilently(silenceErr = true) != 0) {
+        git("checkout", "-b", branchName).runSilently(silenceErr = true)
+    }
+    git("reset", "--hard", if (ref) upstreamBranch else "$upstreamName/$upstreamBranch")
+        .executeSilently(silenceErr = true)
+    git("gc").runSilently(silenceErr = true)
 }

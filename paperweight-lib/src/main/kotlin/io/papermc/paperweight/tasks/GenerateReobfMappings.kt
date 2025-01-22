@@ -52,7 +52,6 @@ import org.gradle.workers.WorkAction
 import org.gradle.workers.WorkParameters
 import org.gradle.workers.WorkerExecutor
 
-@CacheableTask
 abstract class GenerateReobfMappings : JavaLauncherTask() {
 
     @get:InputFile
@@ -80,6 +79,7 @@ abstract class GenerateReobfMappings : JavaLauncherTask() {
     abstract val workerExecutor: WorkerExecutor
 
     @get:InputFile
+    @get:Optional
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val spigotRecompiledClasses: RegularFileProperty
 
@@ -101,7 +101,7 @@ abstract class GenerateReobfMappings : JavaLauncherTask() {
             notchToSpigotMappings.set(this@GenerateReobfMappings.notchToSpigotMappings)
             sourceMappings.set(this@GenerateReobfMappings.sourceMappings)
             inputJar.set(this@GenerateReobfMappings.inputJar)
-            spigotRecompiles.set(spigotRecompiledClasses.path)
+            spigotRecompiles.set(spigotRecompiledClasses.pathOrNull)
 
             reobfMappings.set(this@GenerateReobfMappings.reobfMappings)
         }
@@ -207,7 +207,7 @@ abstract class GenerateReobfMappings : JavaLauncherTask() {
 
             val outputMappings = mergeSpigotWithMojangMemberMappings(obfToSpigot, obfToMojang, spigotToMojang)
 
-            val spigotRecompiles = parameters.spigotRecompiles.path.readLines().toSet()
+            val spigotRecompiles = parameters.spigotRecompiles.pathOrNull?.readLines()?.toSet() ?: emptySet()
 
             val cleanedOutputMappings = HypoContext.builder()
                 .withConfig(HypoConfig.builder().setRequireFullClasspath(false).withParallelism(1).build())

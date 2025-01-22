@@ -54,6 +54,7 @@ import org.cadixdev.lorenz.model.TopLevelClassMapping
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.ListProperty
+import org.gradle.api.provider.Property
 import org.gradle.api.tasks.*
 import org.gradle.jvm.toolchain.JavaLauncher
 import org.gradle.kotlin.dsl.*
@@ -66,8 +67,9 @@ fun generateMappings(
     vanillaJarPath: Path,
     libraryPaths: List<Path>,
     vanillaMappingsPath: Path,
-    paramMappingsPath: Path,
+    paramMappingsPath: Path?,
     outputMappingsPath: Path,
+    deobfNamespaceString: String,
     workerExecutor: WorkerExecutor,
     launcher: JavaLauncher,
     jvmArgs: List<String> = listOf("-Xmx1G")
@@ -83,6 +85,7 @@ fun generateMappings(
         vanillaMappings.set(vanillaMappingsPath)
         paramMappings.set(paramMappingsPath)
         outputMappings.set(outputMappingsPath)
+        deobfNamespace.set(deobfNamespaceString)
     }
 
     return queue
@@ -102,6 +105,7 @@ abstract class GenerateMappings : JavaLauncherTask() {
     abstract val vanillaMappings: RegularFileProperty
 
     @get:InputFile
+    @get:Optional
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val paramMappings: RegularFileProperty
 
@@ -126,8 +130,9 @@ abstract class GenerateMappings : JavaLauncherTask() {
             vanillaJar.path,
             libraries.files.map { it.toPath() },
             vanillaMappings.path,
-            paramMappings.path,
+            paramMappings.pathOrNull,
             outputMappings.path,
+            DEOBF_NAMESPACE,
             workerExecutor,
             launcher.get(),
             jvmargs.get()
@@ -140,6 +145,7 @@ abstract class GenerateMappings : JavaLauncherTask() {
         val vanillaMappings: RegularFileProperty
         val paramMappings: RegularFileProperty
         val outputMappings: RegularFileProperty
+        val deobfNamespace: Property<String>
     }
 
     abstract class GenerateMappingsAction : WorkAction<GenerateMappingsParams> {
@@ -147,19 +153,23 @@ abstract class GenerateMappings : JavaLauncherTask() {
         override fun execute() {
             val vanillaMappings = MappingFormats.PROGUARD.createReader(parameters.vanillaMappings.path).use { it.read() }.reverse()
 
-            val paramMappings = parameters.paramMappings.path.openZip().use { fs ->
-                val path = fs.getPath("mappings", "mappings.tiny")
-                MappingFormats.TINY.read(path, "official", "named")
+            val paramMappings = parameters.paramMappings.orNull?.let { mappingsFile ->
+                mappingsFile.path.openZip().use { fs ->
+                    val path = fs.getPath("mappings", "mappings.tiny")
+                    MappingFormats.TINY.read(path, "official", "named")
+                }
             }
 
-            val merged = MappingSetMerger.create(
-                vanillaMappings,
-                paramMappings,
-                MergeConfig.builder()
-                    .withFieldMergeStrategy(FieldMergeStrategy.STRICT)
-                    .withMergeHandler(ParamsMergeHandler())
-                    .build()
-            ).merge()
+            val merged = paramMappings?.let {
+                MappingSetMerger.create(
+                    vanillaMappings,
+                    it,
+                    MergeConfig.builder()
+                        .withFieldMergeStrategy(FieldMergeStrategy.STRICT)
+                        .withMergeHandler(ParamsMergeHandler())
+                        .build()
+                ).merge()
+            } ?: vanillaMappings
 
             val filledMerged = HypoContext.builder()
                 .withProvider(AsmClassDataProvider.of(ClassProviderRoot.fromJar(parameters.vanillaJar.path)))
@@ -179,7 +189,7 @@ abstract class GenerateMappings : JavaLauncherTask() {
                 }
 
             ensureParentExists(parameters.outputMappings)
-            MappingFormats.TINY.write(filledMerged, parameters.outputMappings.path, OBF_NAMESPACE, DEOBF_NAMESPACE)
+            MappingFormats.TINY.write(filledMerged, parameters.outputMappings.path, OBF_NAMESPACE, parameters.deobfNamespace.get())
         }
     }
 }
