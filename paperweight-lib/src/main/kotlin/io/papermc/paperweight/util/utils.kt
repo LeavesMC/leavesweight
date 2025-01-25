@@ -29,10 +29,10 @@ import io.papermc.paperweight.DownloadService
 import io.papermc.paperweight.PaperweightException
 import io.papermc.paperweight.tasks.*
 import io.papermc.paperweight.util.constants.*
+import io.papermc.paperweight.util.data.mache.*
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
-import java.lang.management.ManagementFactory
 import java.lang.reflect.Type
 import java.net.URI
 import java.net.URL
@@ -45,15 +45,22 @@ import java.util.IdentityHashMap
 import java.util.Locale
 import java.util.Optional
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.Executors
+import java.util.concurrent.ThreadFactory
 import java.util.concurrent.ThreadLocalRandom
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.jar.Attributes
 import java.util.jar.Manifest
 import kotlin.io.path.*
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
+import kotlinx.coroutines.asCoroutineDispatcher
 import org.cadixdev.lorenz.merge.MergeResult
 import org.gradle.api.Project
 import org.gradle.api.Task
+import org.gradle.api.artifacts.ConfigurationContainer
 import org.gradle.api.attributes.Attribute
+import org.gradle.api.file.Directory
 import org.gradle.api.file.FileCollection
 import org.gradle.api.file.FileSystemLocation
 import org.gradle.api.file.ProjectLayout
@@ -61,7 +68,8 @@ import org.gradle.api.file.RegularFile
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.invocation.Gradle
 import org.gradle.api.logging.LogLevel
-import org.gradle.api.logging.Logger
+import org.gradle.api.logging.Logging
+import org.gradle.api.model.ObjectFactory
 import org.gradle.api.plugins.JavaPluginExtension
 import org.gradle.api.provider.Property
 import org.gradle.api.provider.Provider
@@ -69,7 +77,6 @@ import org.gradle.api.provider.ProviderFactory
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.TaskContainer
-import org.gradle.api.tasks.TaskProvider
 import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.gradle.jvm.toolchain.JavaLauncher
 import org.gradle.jvm.toolchain.JavaToolchainService
@@ -97,40 +104,10 @@ val ProjectLayout.cache: Path
 
 fun ProjectLayout.cacheDir(path: String) = projectDirectory.dir(".gradle/$CACHE_PATH").dir(path)
 
-fun ProjectLayout.maybeInitSubmodules(offline: Boolean, logger: Logger) {
-    if (offline) {
-        Git.checkForGit()
-        logger.lifecycle("Offline mode enabled, not initializing submodules. This may cause problems if submodules are not already initialized.")
-    } else {
-        initSubmodules()
-    }
-}
-
-fun ProjectLayout.initSubmodules() {
-    Git.checkForGit()
-    Git(projectDirectory.path)("submodule", "update", "--init").executeOut()
-}
-
 fun Project.offlineMode(): Boolean = gradle.startParameter.isOffline
 
 fun <T : FileSystemLocation> Provider<out T>.fileExists(project: Project): Provider<out T?> {
     return flatMap { project.provider { it.takeIf { f -> f.path.exists() } } }
-}
-
-inline fun <reified T : Task> TaskContainer.providerFor(name: String): TaskProvider<T> {
-    return if (names.contains(name)) {
-        named<T>(name)
-    } else {
-        register<T>(name)
-    }
-}
-
-inline fun <reified T : Task> TaskContainer.configureTask(name: String, noinline configure: T.() -> Unit): TaskProvider<T> {
-    return if (names.contains(name)) {
-        named(name, configure)
-    } else {
-        register(name, configure)
-    }
 }
 
 @Suppress("UNCHECKED_CAST")
@@ -142,7 +119,7 @@ fun commentRegex(): Regex {
 }
 
 val ProviderFactory.isBaseExecution: Provider<Boolean>
-    get() = gradleProperty(PAPERWEIGHT_DOWNSTREAM_FILE_PROPERTY)
+    get() = gradleProperty(UPSTREAM_WORK_DIR_PROPERTY)
         .orElse(provider { "false" })
         .map { it == "false" }
 
@@ -192,14 +169,25 @@ class DelegatingOutputStream(vararg delegates: OutputStream) : OutputStream() {
     }
 }
 
-fun Any.convertToPath(): Path {
-    return when (this) {
-        is Path -> this
-        is File -> this.toPath()
-        is FileSystemLocation -> this.path
-        is Provider<*> -> this.get().convertToPath()
-        else -> throw PaperweightException("Unknown type representing a file: ${this.javaClass.name}")
-    }
+/**
+ * Deletes this path recursively if it exists, and ensures it's parent directory exists.
+ *
+ * @return this path
+ */
+fun Path.cleanFile(): Path {
+    deleteRecursive()
+    return createParentDirectories()
+}
+
+/**
+ * Deletes this path recursively if it exists, then creates a directory at this path.
+ *
+ * @return this path
+ */
+fun Path.cleanDir(): Path {
+    deleteRecursive()
+    createDirectories()
+    return this
 }
 
 fun Any.convertToFileProvider(layout: ProjectLayout, providers: ProviderFactory): Provider<RegularFile> {
@@ -208,6 +196,16 @@ fun Any.convertToFileProvider(layout: ProjectLayout, providers: ProviderFactory)
         is File -> layout.file(providers.provider { this })
         is FileSystemLocation -> layout.file(providers.provider { asFile })
         is Provider<*> -> flatMap { it.convertToFileProvider(layout, providers) }
+        else -> throw PaperweightException("Unknown type representing a file: ${this.javaClass.name}")
+    }
+}
+
+fun Any.convertToPath(): Path {
+    return when (this) {
+        is Path -> this
+        is File -> this.toPath()
+        is FileSystemLocation -> this.path
+        is Provider<*> -> this.get().convertToPath()
         else -> throw PaperweightException("Unknown type representing a file: ${this.javaClass.name}")
     }
 }
@@ -323,14 +321,47 @@ fun String.hash(algorithm: HashingAlgorithm): ByteArray = algorithm.threadLocalD
 }
 
 fun InputStream.hash(algorithm: HashingAlgorithm, bufferSize: Int = 8192): ByteArray {
+    return listOf(InputStreamProvider.wrap(this)).hash(algorithm, bufferSize)
+}
+
+interface InputStreamProvider {
+    fun <T> use(op: (InputStream) -> T): T
+
+    companion object {
+        fun file(path: Path): InputStreamProvider = object : InputStreamProvider {
+            override fun <T> use(op: (InputStream) -> T): T {
+                return path.inputStream().use(op)
+            }
+        }
+
+        fun dir(path: Path): List<InputStreamProvider> = path.walk()
+            .sortedBy { it.absolutePathString() }
+            .map { file -> file(file) }
+            .toList()
+
+        fun wrap(input: InputStream): InputStreamProvider = object : InputStreamProvider {
+            override fun <T> use(op: (InputStream) -> T): T {
+                return op(input)
+            }
+        }
+
+        fun string(value: String) = wrap(value.byteInputStream())
+    }
+}
+
+fun Iterable<InputStreamProvider>.hash(algorithm: HashingAlgorithm, bufferSize: Int = 8192): ByteArray {
     val digest = algorithm.threadLocalDigest
     val buffer = ByteArray(bufferSize)
-    while (true) {
-        val count = read(buffer)
-        if (count == -1) {
-            break
+    for (provider in this) {
+        provider.use { input ->
+            while (true) {
+                val count = input.read(buffer)
+                if (count == -1) {
+                    break
+                }
+                digest.update(buffer, 0, count)
+            }
         }
-        digest.update(buffer, 0, count)
     }
     return digest.digest()
 }
@@ -348,16 +379,17 @@ fun ByteArray.asHexString(): String {
 }
 
 fun JavaToolchainService.defaultJavaLauncher(project: Project): Provider<JavaLauncher> {
-    return launcherFor(project.extensions.getByType<JavaPluginExtension>().toolchain).orElse(
-        launcherFor {
-            // If the java plugin isn't applied, or no toolchain value was set
-            languageVersion.set(JavaLanguageVersion.of(21))
-        }
-    )
+    // If the java plugin isn't applied, or no toolchain value was set
+    val fallback = launcherFor {
+        languageVersion.set(JavaLanguageVersion.of(21))
+    }
+
+    val ext = project.extensions.findByType<JavaPluginExtension>() ?: return fallback
+    return launcherFor(ext.toolchain).orElse(fallback)
 }
 
-fun <P : Property<*>> P.withDisallowChanges(): P = apply { disallowChanges() }
-fun <P : Property<*>> P.withDisallowUnsafeRead(): P = apply { disallowUnsafeRead() }
+fun <P : Property<*>> P.changesDisallowed(): P = apply { disallowChanges() }
+fun <P : Property<*>> P.finalizedOnRead(): P = apply { finalizeValueOnRead() }
 
 fun FileCollection.toJarClassProviderRoots(): List<ClassProviderRoot> = files.asSequence()
     .map { f -> f.toPath() }
@@ -375,19 +407,6 @@ private fun javaVersion(): Int {
         parts[1].toInt()
     } else {
         parts[0].toInt()
-    }
-}
-
-fun checkJavaVersion() {
-    val minimumJava = 11
-    val ver = javaVersion()
-    if (ver < minimumJava) {
-        var msg = "paperweight requires Gradle to be run with a Java $minimumJava runtime or newer."
-        val runtimeMX = ManagementFactory.getRuntimeMXBean()
-        if (runtimeMX != null) {
-            msg += " Current runtime: Java ${runtimeMX.specVersion} (${runtimeMX.vmName} ${runtimeMX.vmVersion})"
-        }
-        throw PaperweightException(msg)
     }
 }
 
@@ -419,3 +438,65 @@ fun modifyManifest(path: Path, create: Boolean = true, op: Manifest.() -> Unit) 
 }
 
 val mainCapabilityAttribute: Attribute<String> = Attribute.of("io.papermc.paperweight.main-capability", String::class.java)
+
+fun ConfigurationContainer.resolveMacheMeta() = getByName(MACHE_CONFIG).resolveMacheMeta()
+
+fun FileCollection.resolveMacheMeta() = singleFile.toPath().openZipSafe().use { zip ->
+    gson.fromJson<MacheMeta>(zip.getPath("/mache.json").readText())
+}
+
+fun isIDEASync(): Boolean =
+    java.lang.Boolean.getBoolean("idea.sync.active")
+
+inline fun <reified T> ObjectFactory.providerSet(
+    vararg providers: Provider<out T>
+): Provider<Set<T>> {
+    if (providers.isEmpty()) {
+        return setProperty()
+    }
+    var current: Provider<Set<T>>? = null
+    for (provider in providers) {
+        if (current == null) {
+            current = provider.map { setOf(it) }
+        } else {
+            current = current.zip(provider) { set, add -> set + add }
+        }
+    }
+    return current!!
+}
+
+/**
+ * The directory upstreams should be checked out in. Paperweight will use the directory specified in the
+ * following order, whichever is set first:
+ *
+ *  1. The value of the Gradle property `paperweightUpstreamWorkDir`.
+ *  2. The default location of <project_root>/.gradle/caches/paperweight/upstreams
+ *
+ * This means a project which is several upstreams deep will all use the upstreams directory defined by the root project.
+ */
+fun Project.upstreamsDirectory(): Provider<Directory> {
+    val workDirProp = providers.gradleProperty(UPSTREAM_WORK_DIR_PROPERTY)
+    val workDirFromProp = layout.dir(workDirProp.map { File(it) })
+    return workDirFromProp.orElse(rootProject.layout.cacheDir(UPSTREAMS))
+}
+
+private val ioDispatcherCount = AtomicInteger(0)
+
+fun ioDispatcher(name: String): ExecutorCoroutineDispatcher =
+    Executors.newFixedThreadPool(
+        Runtime.getRuntime().availableProcessors(),
+        object : ThreadFactory {
+            val id = ioDispatcherCount.getAndIncrement()
+            val logger = Logging.getLogger("$name-ioDispatcher-$id")
+            val count = AtomicInteger(0)
+
+            override fun newThread(r: Runnable): Thread {
+                val thr = Thread(r, "$name-ioDispatcher-$id-Thread-${count.getAndIncrement()}")
+                thr.setUncaughtExceptionHandler { thread, ex ->
+                    logger.error("Uncaught exception in thread $thread", ex)
+                }
+                thr.isDaemon = true
+                return thr
+            }
+        }
+    ).asCoroutineDispatcher()

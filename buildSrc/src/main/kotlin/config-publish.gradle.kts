@@ -2,7 +2,7 @@ import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 
 plugins {
     id("org.jetbrains.kotlin.jvm")
-    id("com.github.johnrengelman.shadow")
+    id("com.gradleup.shadow")
     id("com.gradle.plugin-publish")
 }
 
@@ -21,14 +21,19 @@ configurations.implementation {
     extendsFrom(shade)
 }
 
+configurations.shadowRuntimeElements {
+    compatibilityAttributes(objects)
+}
+
 fun ShadowJar.configureStandard() {
     configurations = listOf(shade)
 
     dependencies {
         exclude(dependency("org.jetbrains.kotlin:.*:.*"))
+        exclude(dependency("org.slf4j:.*:.*"))
     }
 
-    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "OSGI-INF/**", "*.profile", "module-info.class", "ant_tasks/**")
+    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "OSGI-INF/**", "*.profile", "module-info.class", "ant_tasks/**", "OSGI-OPT/**", "META-INF/*.pro")
 
     mergeServiceFiles()
 }
@@ -43,16 +48,9 @@ val sourcesJar by tasks.existing(AbstractArchiveTask::class) {
     }
 }
 
-val prefix = project.name.substringAfter("leavesweight-")
-
 gradlePlugin {
     website.set("https://github.com/LeavesMC/leavesweight")
     vcsUrl.set("https://github.com/LeavesMC/leavesweight")
-    plugins.create("leavesweight-$prefix") {
-        id = "org.leavesmc.leavesweight.$prefix"
-        displayName = "leavesweight $prefix"
-        tags.set(listOf("paper", "leaves", "minecraft"))
-    }
 }
 
 val shadowJar by tasks.existing(ShadowJar::class) {
@@ -66,26 +64,30 @@ val shadowJar by tasks.existing(ShadowJar::class) {
 
     val prefix = "paper.libs"
     listOf(
+        "codechicken.diffpatch",
+        /* -> */ "codechicken.repack",
         "com.github.salomonbrys.kotson",
-        "com.google.errorprone.annotations",
         "com.google.gson",
         "dev.denwav.hypo",
+        /* -> */ "org.jgrapht",
+        /* -> */ "org.jheaps",
+        /* -> */ "com.google.errorprone.annotations",
+        /* -> */ "org.objectweb.asm",
         "io.sigpipe.jbsdiff",
-        "me.jamiemansfield",
+        /* -> */ "org.tukaani.xz",
         "net.fabricmc",
-        "org.apache.commons",
-        "org.apache.felix",
         "org.apache.http",
+        /* -> */ "org.apache.commons",
         "org.cadixdev",
-        "org.eclipse",
-        "org.jgrapht",
-        "org.jheaps",
-        "org.objectweb.asm",
-        "org.osgi",
-        "org.tukaani.xz",
-        "org.slf4j",
-        "codechicken.diffpatch",
-        "codechicken.repack"
+        /* -> */ "me.jamiemansfield",
+        "org.eclipse.jgit",
+        /* -> */ "com.googlecode.javaewah",
+        /* -> */ "com.googlecode.javaewah32",
+        "kotlinx.coroutines",
+        //"org.slf4j",
+        // used by multiple
+        "org.intellij.lang",
+        "org.jetbrains.annotations"
     ).forEach { pack ->
         relocate(pack, "$prefix.$pack")
     }
@@ -152,6 +154,11 @@ fun MavenPom.pomConfig() {
             id.set("MC_XiaoHei")
             name.set("MC_XiaoHei")
             email.set("xiaohei.xor7studio@foxmail.com")
+        }
+        developer {
+            id.set("Lumine1909")
+            name.set("Lumine1909")
+            url.set("https://github.com/Lumine1909")
         }
     }
 
