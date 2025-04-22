@@ -99,6 +99,13 @@ abstract class CreateLeavesclipJar : JavaLauncherZippedTask() {
 
         val context = DownloadContext(vanillaSha256Hash, vanillaUrl, vanillaFileName)
         rootDir.resolve(DownloadContext.FILE).writeText(context.toString())
+
+        val buildInfo = BuildInfo(
+            project.rootProject.name,
+            mcVersion.get(),
+            System.getenv("BUILD_NUMBER")
+        )
+        rootDir.resolve(BuildInfo.FILE).writeText(buildInfo.toString())
     }
 
     private fun createPatches(rootDir: Path, newBundlerRoot: Path, originalBundlerRoot: Path): List<PatchEntry> {
@@ -318,6 +325,16 @@ abstract class CreateLeavesclipJar : JavaLauncherZippedTask() {
 
         companion object {
             const val FILE = "META-INF/download-context"
+        }
+    }
+
+    data class BuildInfo(val projectName: String, val mcVersion: String, val buildId: String) {
+        override fun toString(): String {
+            return "$projectName\t$mcVersion\t$buildId"
+        }
+
+        companion object {
+            const val FILE = "META-INF/version-data"
         }
     }
 }
