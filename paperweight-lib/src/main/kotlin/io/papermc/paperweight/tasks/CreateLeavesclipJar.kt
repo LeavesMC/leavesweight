@@ -334,7 +334,7 @@ abstract class CreateLeavesclipJar : JavaLauncherZippedTask() {
         }
 
         companion object {
-            const val FILE = "META-INF/version-data"
+            const val FILE = "META-INF/build-info"
         }
     }
 }
