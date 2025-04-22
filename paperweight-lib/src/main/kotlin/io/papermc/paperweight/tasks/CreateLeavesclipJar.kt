@@ -103,7 +103,7 @@ abstract class CreateLeavesclipJar : JavaLauncherZippedTask() {
         val buildInfo = BuildInfo(
             project.rootProject.name,
             mcVersion.get(),
-            System.getenv("BUILD_NUMBER")
+            System.getenv("BUILD_NUMBER") ?: "DEV"
         )
         rootDir.resolve(BuildInfo.FILE).writeText(buildInfo.toString())
     }
