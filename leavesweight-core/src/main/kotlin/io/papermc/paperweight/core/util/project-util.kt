@@ -31,7 +31,6 @@ import org.gradle.api.Project
 import org.gradle.api.Task
 import org.gradle.api.file.RegularFile
 import org.gradle.api.provider.Provider
-import org.gradle.api.tasks.TaskProvider
 import org.gradle.api.tasks.bundling.AbstractArchiveTask
 import org.gradle.kotlin.dsl.*
 
