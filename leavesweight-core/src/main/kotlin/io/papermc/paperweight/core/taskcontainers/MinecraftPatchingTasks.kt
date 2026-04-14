@@ -57,6 +57,7 @@ class MinecraftPatchingTasks(
     private val baseSources: Provider<Directory>,
     private val baseResources: Provider<Directory>,
     private val gitFilePatches: Provider<Boolean>,
+    private val filterPatches: Provider<Boolean>,
     outputRoot: Path,
     private val outputSrc: Path = outputRoot.resolve("src/minecraft/java"),
     private val outputResources: Path = outputRoot.resolve("src/minecraft/resources"),
@@ -80,8 +81,8 @@ class MinecraftPatchingTasks(
         } else {
             output.set(outputSrc)
         }
-        patches.set(sourcePatchDir.fileExists(project))
-        rejects.set(rejectsDir)
+        patches.set(sourcePatchDir.fileExists())
+        rejectsDir.set(this@MinecraftPatchingTasks.rejectsDir)
         gitFilePatches.set(this@MinecraftPatchingTasks.gitFilePatches)
         identifier = configName
     }
@@ -100,7 +101,7 @@ class MinecraftPatchingTasks(
 
         input.set(baseResources)
         output.set(outputResources)
-        patches.set(resourcePatchDir.fileExists(project))
+        patches.set(resourcePatchDir.fileExists())
         // TODO rejects?
         gitFilePatches.set(this@MinecraftPatchingTasks.gitFilePatches)
         identifier = configName
@@ -121,7 +122,7 @@ class MinecraftPatchingTasks(
             base.set(applySourcePatches.flatMap { it.output })
         }
         repo.set(outputSrc)
-        patches.set(featurePatchDir.fileExists(project))
+        patches.set(featurePatchDir.fileExists())
     }
 
     val applyPatches = tasks.register<Task>("apply${namePart}Patches") {
@@ -144,17 +145,17 @@ class MinecraftPatchingTasks(
 
     fun setupFork(config: ForkConfig) {
         val collectAccessTransform = tasks.register<CollectATsFromPatches>("collect${configName.capitalized()}ATsFromPatches") {
-            patchDir.set(featurePatchDir.fileExists(project))
+            patchDir.set(featurePatchDir.fileExists())
         }
 
         val mergeCollectedAts = tasks.register<MergeAccessTransforms>("merge${configName.capitalized()}ATs") {
-            firstFile.set(additionalAts.fileExists(project))
+            firstFile.set(additionalAts.fileExists())
             secondFile.set(collectAccessTransform.flatMap { it.outputFile })
         }
 
         val importLibFiles = tasks.register<ImportLibraryFiles>("import${configName.capitalized()}LibraryFiles") {
             patches.from(config.featurePatchDir, config.sourcePatchDir)
-            devImports.set(config.devImports.fileExists(project))
+            devImports.set(config.devImports.fileExists())
             libraryFileIndex.set(coreTasks.indexLibraryFiles.flatMap { it.outputFile })
             libraries.from(coreTasks.indexLibraryFiles.map { it.libraries })
         }
@@ -209,8 +210,8 @@ class MinecraftPatchingTasks(
 
             ats.jstClasspath.from(project.configurations.named(MACHE_MINECRAFT_CONFIG))
             ats.jst.from(project.configurations.named(JST_CONFIG))
-            atFile.set(additionalAts.fileExists(project))
-            atFileOut.set(additionalAts.fileExists(project))
+            atFile.set(additionalAts.fileExists())
+            atFileOut.set(additionalAts.fileExists())
         }
 
         val rebuildResourcePatches = tasks.register<RebuildFilePatches>(rebuildResourcePatchesName) {
@@ -237,6 +238,7 @@ class MinecraftPatchingTasks(
             inputDir.set(outputSrc)
             patchDir.set(featurePatchDir)
             baseRef.set("file")
+            filterPatches.set(this@MinecraftPatchingTasks.filterPatches)
         }
 
         val rebuildPatches = tasks.register<Task>(rebuildPatchesName) {
@@ -259,6 +261,14 @@ class MinecraftPatchingTasks(
 
             repo.set(outputResources)
             upstream.set("upstream/main")
+        }
+
+        val applyOrMoveSourcePatches = tasks.register<ApplyFilePatches>("applyOrMove${namePart}SourcePatches") {
+            configureApplyFilePatches()
+            description = "Applies $configName file patches to the Minecraft sources as Git patches, moving any failed patches to the rejects dir. " +
+                "Useful when updating to a new Minecraft version."
+            gitFilePatches = true
+            moveFailedGitPatchesToRejects = true
         }
     }
 }
