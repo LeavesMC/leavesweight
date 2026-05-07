@@ -1,6 +1,6 @@
 plugins {
     `config-kotlin`
-    id("net.kyori.blossom") version "2.1.0"
+    id("net.kyori.blossom") version "2.2.0"
 }
 
 repositories {
@@ -12,6 +12,7 @@ sourceSets.main {
         kotlinSources {
             properties.put("jst_version", libs.versions.jst)
             properties.put("tinyRemapper_version", libs.versions.tinyRemapper)
+            properties.put("checkstyle_version", libs.versions.checkstyle)
         }
     }
 }

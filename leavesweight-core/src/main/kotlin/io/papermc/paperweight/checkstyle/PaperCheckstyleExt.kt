@@ -20,13 +20,32 @@
  * USA
  */
 
-package io.papermc.paperweight.core.extension
+package io.papermc.paperweight.checkstyle
 
-import org.gradle.api.provider.Property
+import javax.inject.Inject
+import org.gradle.api.file.ProjectLayout
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.SetProperty
 
-interface SpigotExtension {
+@Suppress("LeakingThis")
+abstract class PaperCheckstyleExt {
 
-    val buildDataRef: Property<String>
-    val packageVersion: Property<String>
-    val enabled: Property<Boolean>
+    @get:Inject
+    abstract val layout: ProjectLayout
+
+    abstract val typeUseAnnotationsFile: RegularFileProperty
+
+    abstract val directoriesToSkipFile: RegularFileProperty
+
+    abstract val customJavadocTags: SetProperty<JavadocTag>
+
+    init {
+        init()
+    }
+
+    private fun init() {
+        typeUseAnnotationsFile.convention(
+            layout.settingsDirectory.file(".checkstyle/type_use_annotations.txt")
+        )
+    }
 }

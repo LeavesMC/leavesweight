@@ -33,7 +33,8 @@ import io.papermc.paperweight.userdev.internal.action.Value
 import io.papermc.paperweight.userdev.internal.action.WorkDispatcher
 import io.papermc.paperweight.userdev.internal.util.jars
 import io.papermc.paperweight.util.*
-import kotlin.io.path.*
+import kotlin.io.path.createDirectories
+import kotlin.io.path.deleteIfExists
 import org.gradle.jvm.toolchain.JavaLauncher
 
 class RunCodebookAction(
@@ -41,11 +42,8 @@ class RunCodebookAction(
     @Input val minecraftRemapArgs: ListValue<String>,
     @Input val vanillaJar: FileValue,
     @Input private val minecraftLibraryJars: DirectoryValue,
-    @Input val mappings: FileValue,
-    @Input val paramMappings: FileCollectionValue,
     @Input val constants: FileCollectionValue,
     @Input val codebook: FileCollectionValue,
-    @Input val remapper: FileCollectionValue,
     @Output val outputJar: FileValue,
 ) : WorkDispatcher.Action {
     override fun execute() {
@@ -56,9 +54,9 @@ class RunCodebookAction(
             outputJar.get(),
             minecraftRemapArgs.get(),
             temp,
-            remapper.get(),
-            mappings.get(),
-            paramMappings.get().singleFile.toPath(),
+            null,
+            null,
+            null,
             constants.get().singleOrNull()?.toPath(),
             vanillaJar.get(),
             minecraftLibraryJars.get().jars(),

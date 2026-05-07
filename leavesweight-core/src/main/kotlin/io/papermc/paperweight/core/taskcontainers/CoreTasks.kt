@@ -24,6 +24,7 @@ package io.papermc.paperweight.core.taskcontainers
 
 import io.papermc.paperweight.PaperweightException
 import io.papermc.paperweight.core.extension.ForkConfig
+import io.papermc.paperweight.core.tasks.ExtractMinecraftSources
 import io.papermc.paperweight.core.tasks.ImportLibraryFiles
 import io.papermc.paperweight.core.tasks.IndexLibraryFiles
 import io.papermc.paperweight.core.tasks.SetupMinecraftSources
@@ -46,15 +47,14 @@ class CoreTasks(
     val mache: Property<MacheMeta>,
     tasks: TaskContainer = project.tasks
 ) : AllTasks(project) {
+    lateinit var paperPatchingTasks: MinecraftPatchingTasks
+
     val macheRemapJar by tasks.registering(RunCodebook::class) {
         serverJar.set(extractFromBundler.flatMap { it.serverJar })
-        serverMappings.set(downloadMappings.flatMap { it.outputFile })
 
-        remapperArgs.set(mache.map { it.remapperArgs })
+        codebookArgs.set(mache.map { it.remapperArgs })
         codebookClasspath.from(project.configurations.named(MACHE_CODEBOOK_CONFIG))
         minecraftClasspath.from(project.configurations.named(MACHE_MINECRAFT_LIBRARIES_CONFIG))
-        remapperClasspath.from(project.configurations.named(MACHE_REMAPPER_CONFIG))
-        paramMappings.from(project.configurations.named(MACHE_PARAM_MAPPINGS_CONFIG))
         constants.from(project.configurations.named(MACHE_CONSTANTS_CONFIG))
 
         outputJar.set(layout.cache.resolve(FINAL_REMAPPED_CODEBOOK_JAR))
@@ -71,11 +71,11 @@ class CoreTasks(
     }
 
     val collectPaperATsFromPatches by tasks.registering(CollectATsFromPatches::class) {
-        patchDir.set(project.coreExt.paper.featurePatchDir.fileExists(project))
+        patchDir.set(project.coreExt.paper.featurePatchDir.fileExists())
     }
 
     val mergePaperATs by tasks.registering<MergeAccessTransforms> {
-        firstFile.set(project.coreExt.paper.additionalAts.fileExists(project))
+        firstFile.set(project.coreExt.paper.additionalAts.fileExists())
         secondFile.set(collectPaperATsFromPatches.flatMap { it.outputFile })
     }
 
@@ -88,14 +88,14 @@ class CoreTasks(
 
     val importLibraryFiles = tasks.register<ImportLibraryFiles>("importPaperLibraryFiles") {
         patches.from(project.coreExt.paper.sourcePatchDir, project.coreExt.paper.featurePatchDir)
-        devImports.set(project.coreExt.paper.devImports.fileExists(project))
+        devImports.set(project.coreExt.paper.devImports.fileExists())
         libraryFileIndex.set(indexLibraryFiles.flatMap { it.outputFile })
         libraries.from(indexLibraryFiles.map { it.libraries })
     }
 
     private fun SetupMinecraftSources.configureSetupMacheSources() {
         mache.from(project.configurations.named(MACHE_CONFIG))
-        macheOld.set(project.coreExt.macheOldPath)
+        oldPaperCommit.convention(project.coreExt.updatingMinecraft.oldPaperCommit)
         inputFile.set(macheDecompileJar.flatMap { it.outputJar })
         predicate.set { Files.isRegularFile(it) && it.toString().endsWith(".java") }
     }
@@ -104,16 +104,26 @@ class CoreTasks(
         description = "Setup Minecraft source dir (applying mache patches and paper ATs)."
         configureSetupMacheSources()
         libraryImports.set(importLibraryFiles.flatMap { it.outputDir })
-        outputDir.set(layout.cache.resolve(BASE_PROJECT).resolve("sources"))
+        outputZip.set(layout.cache.resolve(BASE_PROJECT).resolve("sources.zip"))
 
         atFile.set(mergePaperATs.flatMap { it.outputFile })
         ats.jstClasspath.from(project.configurations.named(MACHE_MINECRAFT_LIBRARIES_CONFIG))
         ats.jst.from(project.configurations.named(JST_CONFIG))
     }
 
+    val extractMacheSources by tasks.registering(ExtractMinecraftSources::class) {
+        zip.set(setupMacheSources.flatMap { it.outputZip })
+        outputDir.set(layout.cache.resolve(BASE_PROJECT).resolve("sources"))
+    }
+
     val setupMacheSourcesForDevBundle by tasks.registering(SetupMinecraftSources::class) {
         description = "Setup Minecraft source dir (applying mache patches)."
         configureSetupMacheSources()
+        outputZip.set(layout.cache.resolve(BASE_PROJECT).resolve("sources_dev_bundle.zip"))
+    }
+
+    val extractMacheSourcesForDevBundle by tasks.registering(ExtractMinecraftSources::class) {
+        zip.set(setupMacheSourcesForDevBundle.flatMap { it.outputZip })
         outputDir.set(layout.cache.resolve(BASE_PROJECT).resolve("sources_dev_bundle"))
     }
 
@@ -122,6 +132,11 @@ class CoreTasks(
 
         inputFile.set(extractFromBundler.flatMap { it.serverJar })
         predicate.set { Files.isRegularFile(it) && !it.toString().endsWith(".class") }
+        outputZip.set(layout.cache.resolve(BASE_PROJECT).resolve("resources.zip"))
+    }
+
+    val extractMacheResources by tasks.registering(ExtractMinecraftSources::class) {
+        zip.set(setupMacheResources.flatMap { it.outputZip })
         outputDir.set(layout.cache.resolve(BASE_PROJECT).resolve("resources"))
     }
 
@@ -161,7 +176,7 @@ class CoreTasks(
         } else {
             project.layout.projectDirectory.path
         }
-        val paperPatchingTasks = MinecraftPatchingTasks(
+        paperPatchingTasks = MinecraftPatchingTasks(
             project,
             "paper",
             true,
@@ -172,9 +187,10 @@ class CoreTasks(
             project.coreExt.paper.resourcePatchDir,
             project.coreExt.paper.featurePatchDir,
             project.coreExt.paper.additionalAts,
-            setupMacheSources.flatMap { it.outputDir },
-            setupMacheResources.flatMap { it.outputDir },
+            extractMacheSources.flatMap { it.outputDir },
+            extractMacheResources.flatMap { it.outputDir },
             project.coreExt.gitFilePatches,
+            project.coreExt.filterPatches,
             paperOutputRoot,
         )
 
@@ -210,6 +226,7 @@ class CoreTasks(
                 upstreamTasks.first.applyFeaturePatches.flatMap { it.repo },
                 upstreamTasks.first.applyResourcePatches.flatMap { it.output },
                 project.coreExt.gitFilePatches,
+                project.coreExt.filterPatches,
                 outputRoot,
             )
 
@@ -231,6 +248,7 @@ class CoreTasks(
                     "upstream server patching"
                 },
                 project.coreExt.gitFilePatches,
+                project.coreExt.filterPatches,
                 null,
                 upstreamTasks.second,
             )
