@@ -44,7 +44,6 @@ class UpstreamConfigTasks(
     private val readOnly: Boolean,
     private val taskGroup: String,
     private val gitFilePatches: Provider<Boolean>,
-    private val filterPatches: Provider<Boolean>,
     private val setupUpstream: TaskProvider<out RunNestedBuild>?,
     private val upstreamTasks: UpstreamConfigTasks?,
 ) {
@@ -56,7 +55,11 @@ class UpstreamConfigTasks(
             it.map { cfg ->
                 ApplySingleFilePatches.Patch.patch(target.objects, upstream) {
                     path = cfg.path
-                    patchFile = cfg.patchFile.fileExists()
+                    patchFile = layout.file(
+                        cfg.patchFile.flatMap { f ->
+                            if (f.path.exists()) target.providers.provider { f.asFile } else target.providers.provider { null }
+                        }
+                    )
                     outputFile = cfg.outputFile
                     rejectsFile = cfg.rejectsFile
                 }
@@ -129,7 +132,6 @@ class UpstreamConfigTasks(
             cfg.featurePatchDir,
             base,
             gitFilePatches,
-            filterPatches,
             cfg.outputDir.path,
         )
     }

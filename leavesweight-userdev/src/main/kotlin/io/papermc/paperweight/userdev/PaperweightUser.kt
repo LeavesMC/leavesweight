@@ -50,18 +50,14 @@ import org.gradle.api.attributes.Bundling
 import org.gradle.api.attributes.Category
 import org.gradle.api.attributes.LibraryElements
 import org.gradle.api.attributes.Usage
-import org.gradle.api.plugins.JavaPlugin
-import org.gradle.api.plugins.jvm.internal.JvmLanguageUtilities
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Delete
 import org.gradle.api.tasks.TaskProvider
 import org.gradle.api.tasks.bundling.Jar
-import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.build.event.BuildEventsListenerRegistry
 import org.gradle.internal.DefaultTaskExecutionRequest
 import org.gradle.jvm.toolchain.JavaToolchainService
 import org.gradle.kotlin.dsl.*
-import org.gradle.kotlin.dsl.support.serviceOf
 import org.gradle.util.internal.NameMatcher
 
 abstract class PaperweightUser : Plugin<Project> {
@@ -121,8 +117,7 @@ abstract class PaperweightUser : Plugin<Project> {
         target.dependencies.extensions.create(
             PAPERWEIGHT_EXTENSION,
             PaperweightUserDependenciesExtension::class,
-            target.dependencies,
-            target.dependencyFactory,
+            target.dependencies
         )
 
         createConfigurations(target, target.provider { userdevSetup }, setupTask)
@@ -147,11 +142,7 @@ abstract class PaperweightUser : Plugin<Project> {
             remapper.from(project.configurations.named(PLUGIN_REMAPPER_CONFIG))
         }
 
-        val compileJava = target.tasks.named<JavaCompile>(JavaPlugin.COMPILE_JAVA_TASK_NAME)
-        val jvmLanguageUtilities = target.serviceOf<JvmLanguageUtilities>()
-
         target.configurations.register(REOBF_CONFIG) {
-            jvmLanguageUtilities.useDefaultTargetPlatformInference(this, compileJava)
             isCanBeConsumed = true
             isCanBeResolved = false
             attributes {

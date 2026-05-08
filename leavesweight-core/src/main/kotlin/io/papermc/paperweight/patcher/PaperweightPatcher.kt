@@ -77,8 +77,7 @@ abstract class PaperweightPatcher : Plugin<Project> {
                 checkoutTask.flatMap { it.outputDir },
                 !isBaseExecution,
                 "patching",
-                patcher.gitFilePatches,
-                patcher.filterPatches,
+                provider { false }, // TODO
                 applyUpstream,
                 null,
             )
