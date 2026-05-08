@@ -23,6 +23,7 @@
 package io.papermc.paperweight.core.taskcontainers
 
 import com.google.gson.JsonObject
+import io.papermc.paperweight.core.util.reobfRequiresDebug
 import io.papermc.paperweight.tasks.*
 import io.papermc.paperweight.util.*
 import io.papermc.paperweight.util.constants.*
@@ -45,14 +46,23 @@ class LeavesclipTasks(
     private val bundlerVersionJson: Provider<RegularFile>,
     private val serverLibrariesList: Provider<RegularFile>,
     private val vanillaJar: Provider<RegularFile>,
-    serverJar: Provider<RegularFile>,
+    mojangJar: Provider<RegularFile>,
+    reobfJar: Provider<RegularFile>,
     private val mcVersion: Provider<String>
 ) {
     init {
-        val (createBundlerJar, createLeavesclipJar) = project.createTasks()
+        val (createBundlerJar, createLeavesclipJar) = project.createTasks("mojmap")
+        val (createReobfBundlerJar, createReobfLeavesclipJar) = project.createTasks("reobf")
 
-        createBundlerJar.serverJar(serverJar)
+        createBundlerJar.serverJar(mojangJar)
+        createReobfBundlerJar.serverJar(reobfJar) {
+            reobfRequiresDebug()
+        }
+
         createLeavesclipJar.bundlerJar(createBundlerJar)
+        createReobfLeavesclipJar.bundlerJar(createReobfBundlerJar) {
+            reobfRequiresDebug()
+        }
     }
 
     private fun Project.createTasks(

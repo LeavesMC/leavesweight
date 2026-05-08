@@ -25,7 +25,6 @@ package io.papermc.paperweight.util.constants
 import org.gradle.api.Task
 
 const val PAPERWEIGHT_EXTENSION = "paperweight"
-const val PAPER_CHECKSTYLE_EXTENSION = "paperCheckstyle"
 const val PAPERWEIGHT_DEBUG = "paperweight.debug"
 fun paperweightDebug(): Boolean = System.getProperty(PAPERWEIGHT_DEBUG, "false") == "true"
 const val PAPERWEIGHT_VERBOSE_APPLY_PATCHES = "paperweight.verboseApplyPatches"
@@ -117,8 +116,6 @@ const val DOWNLOAD_SERVICE_NAME = "paperweightDownloadService"
 
 private const val MACHE_PATH = "$PAPER_PATH/mache"
 const val BASE_PROJECT = "$MACHE_PATH/base"
-const val OLD_PAPER_PATH = "$PAPER_PATH/oldPaper"
-const val PATCH_ROULETTE_CONFIG_DIR = "$PAPER_PATH/patch-roulette"
 
 fun Task.paperTaskOutput(ext: String? = null) = paperTaskOutput(name, ext)
 fun paperTaskOutput(name: String, ext: String? = null) = "$TASK_CACHE/$name" + (ext?.let { ".$it" } ?: "")

@@ -25,7 +25,6 @@ package io.papermc.paperweight.core.tasks
 import io.papermc.paperweight.core.util.ApplySourceATs
 import io.papermc.paperweight.tasks.*
 import io.papermc.paperweight.util.*
-import io.papermc.paperweight.util.constants.paperTaskOutput
 import kotlin.io.path.*
 import org.eclipse.jgit.api.Git
 import org.gradle.api.file.DirectoryProperty
@@ -34,7 +33,6 @@ import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.InputFile
-import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Nested
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
@@ -48,9 +46,6 @@ abstract class SetupForkMinecraftSources : JavaLauncherTask() {
 
     @get:OutputDirectory
     abstract val outputDir: DirectoryProperty
-
-    @get:Internal
-    abstract val atWorkingDir: DirectoryProperty
 
     @get:Nested
     val ats: ApplySourceATs = objects.newInstance()
@@ -66,11 +61,6 @@ abstract class SetupForkMinecraftSources : JavaLauncherTask() {
     @get:Input
     abstract val identifier: Property<String>
 
-    override fun init() {
-        super.init()
-        atWorkingDir.set(layout.cache.resolve(paperTaskOutput(name = "${name}_atWorkingDir")))
-    }
-
     @TaskAction
     fun run() {
         val out = outputDir.path.cleanDir()
@@ -85,7 +75,7 @@ abstract class SetupForkMinecraftSources : JavaLauncherTask() {
                 inputDir.path,
                 outputDir.path,
                 atFile.path,
-                atWorkingDir.path,
+                temporaryDir.toPath(),
             )
             commitAndTag(git, "ATs", "${identifier.get()} ATs")
         }

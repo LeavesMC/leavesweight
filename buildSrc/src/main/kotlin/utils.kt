@@ -10,7 +10,7 @@ import org.gradle.plugin.devel.PluginDeclaration
 fun Configuration.compatibilityAttributes(objects: ObjectFactory) {
     attributes {
         attribute(TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 17)
-        attribute(GradlePluginApiVersion.GRADLE_PLUGIN_API_VERSION_ATTRIBUTE, objects.named("9.0.0"))
+        attribute(GradlePluginApiVersion.GRADLE_PLUGIN_API_VERSION_ATTRIBUTE, objects.named("8.14"))
     }
 }
 
@@ -18,7 +18,7 @@ fun GradlePluginDevelopmentExtension.setupPlugin(prefix: String, op: Action<Plug
     plugins.register("leavesweight-$prefix") {
         id = "org.leavesmc.leavesweight." + prefix
         displayName = "leavesweight $prefix"
-        tags.set(listOf("leaves", "paper", "minecraft"))
+        tags.set(listOf("paper", "leaves", "minecraft"))
         op.execute(this)
     }
 }

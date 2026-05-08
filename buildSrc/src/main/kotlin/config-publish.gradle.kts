@@ -27,9 +27,6 @@ configurations.shadowRuntimeElements {
 
 fun ShadowJar.configureStandard() {
     configurations = listOf(shade)
-    filesMatching("META-INF/services/**") {
-        duplicatesStrategy = DuplicatesStrategy.INCLUDE
-    }
 
     dependencies {
         exclude(dependency("org.jetbrains.kotlin:.*:.*"))

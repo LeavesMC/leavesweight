@@ -34,11 +34,12 @@ import io.papermc.paperweight.userdev.internal.setup.action.ExtractFromBundlerAc
 import io.papermc.paperweight.userdev.internal.setup.action.RunCodebookAction
 import io.papermc.paperweight.userdev.internal.setup.action.RunPaperclipAction
 import io.papermc.paperweight.userdev.internal.setup.action.SetupMacheSourcesAction
-import io.papermc.paperweight.userdev.internal.setup.action.VanillaServerJarDownload
+import io.papermc.paperweight.userdev.internal.setup.action.VanillaServerDownloads
 import io.papermc.paperweight.util.*
 import io.papermc.paperweight.util.constants.*
 import io.papermc.paperweight.util.data.mache.*
 import java.nio.file.Path
+import kotlin.io.path.*
 import org.gradle.api.artifacts.DependencySet
 import org.gradle.api.file.FileCollection
 import org.gradle.kotlin.dsl.*
@@ -63,10 +64,11 @@ class SetupHandlerImpl(
         )
 
         val vanillaDownloads = dispatcher.register(
-            "vanillaServerJarDownload",
-            VanillaServerJarDownload(
+            "vanillaServerDownloads",
+            VanillaServerDownloads(
                 mcVer,
                 dispatcher.outputFile("vanillaServer.jar"),
+                dispatcher.outputFile("mojangServerMappings.txt"),
                 parameters.downloadService.get(),
             )
         )
@@ -94,21 +96,26 @@ class SetupHandlerImpl(
         )
 
         val remap = dispatcher.register(
-            "runCodebook",
+            "remapMinecraft",
             RunCodebookAction(
                 javaLauncher,
                 stringListValue(macheMeta().remapperArgs),
                 extract.vanillaServerJar,
                 extract.minecraftLibraryJars,
+                vanillaDownloads.serverMappings,
+                FileCollectionValue(context.macheParamMappingsConfig),
                 FileCollectionValue(context.macheConstantsConfig),
                 FileCollectionValue(context.macheCodebookConfig),
+                FileCollectionValue(context.macheRemapperConfig),
                 dispatcher.outputFile("output.jar"),
             )
         )
         dispatcher.provided(
             remap.minecraftRemapArgs,
+            remap.paramMappings,
             remap.constants,
             remap.codebook,
+            remap.remapper,
         )
 
         val macheSources = dispatcher.register(
@@ -180,7 +187,13 @@ class SetupHandlerImpl(
             .also { completedOutput = it }
     }
 
-    override fun extractReobfMappings(output: Path) = Unit
+    override fun extractReobfMappings(output: Path) {
+        bundle.config.reobfMappingsFile?.let { location ->
+            bundle.zip.openZipSafe().use { fs ->
+                fs.getPath(location).copyTo(output, true)
+            }
+        }
+    }
 
     private fun macheMeta(): MacheMeta = requireNotNull(macheMeta) { "Mache meta is not setup yet" }
 
