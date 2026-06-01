@@ -27,7 +27,6 @@ import javax.inject.Inject
 import org.gradle.api.Action
 import org.gradle.api.NamedDomainObjectContainer
 import org.gradle.api.Project
-import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.model.ObjectFactory
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
@@ -42,28 +41,14 @@ abstract class PaperweightCoreExtension @Inject constructor(objects: ObjectFacto
 
     val macheRepo: Property<String> = objects.property<String>().convention(PAPER_MAVEN_REPO_URL)
 
-    val macheOldPath: DirectoryProperty = objects.directoryProperty()
     val gitFilePatches: Property<Boolean> = objects.property<Boolean>().convention(false)
+    val filterPatches: Property<Boolean> = objects.property<Boolean>().convention(true)
 
     val vanillaJarIncludes: ListProperty<String> = objects.listProperty<String>().convention(
         listOf("/*.class", "/net/minecraft/**", "/com/mojang/math/**")
     )
 
-    val reobfPackagesToFix: ListProperty<String> = objects.listProperty()
-
-    val spigot = objects.newInstance<SpigotExtension>().also { spigot ->
-        spigot.enabled.convention(
-            spigot.buildDataRef.zip(spigot.packageVersion) { ref, pkg ->
-                ref !== null && pkg !== null && ref.isNotBlank() && pkg.isNotBlank()
-            }
-        )
-    }
     val paper = objects.newInstance<PaperExtension>(project)
-
-    @Suppress("unused")
-    fun spigot(action: Action<in SpigotExtension>) {
-        action.execute(spigot)
-    }
 
     @Suppress("unused")
     fun paper(action: Action<in PaperExtension>) {
@@ -75,4 +60,10 @@ abstract class PaperweightCoreExtension @Inject constructor(objects: ObjectFacto
     }
 
     val activeFork: Property<ForkConfig> = objects.property()
+
+    val updatingMinecraft = objects.newInstance<UpdatingMinecraftExtension>()
+
+    fun updatingMinecraft(action: Action<UpdatingMinecraftExtension>) {
+        action.execute(updatingMinecraft)
+    }
 }
